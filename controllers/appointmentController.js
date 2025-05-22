@@ -2,6 +2,9 @@ const { RendezVous, Patient, User } = require('../models/sequelize');
 const { Op } = require('sequelize');
 const moment = require('moment');
 
+// Log pour le débogage
+console.log('Modèles chargés:', { RendezVous, Patient, User });
+
 // Créer un nouveau rendez-vous
 exports.createAppointment = async (req, res) => {
   try {
@@ -118,7 +121,7 @@ exports.getAppointments = async (req, res) => {
 exports.getAppointment = async (req, res) => {
   try {
     const { id } = req.params;
-    const appointment = await RendezVous.findByPk(id, {
+    const appointment = await Appointment.findByPk(id, {
       include: [
         {
           model: Patient,
@@ -210,7 +213,7 @@ exports.getUpcomingAppointments = async (req, res) => {
           [Op.gte]: now
         },
         status: {
-          [Op.ne]: 'annulé'
+          [Op.ne]: 'cancelled'
         }
       },
       include: [{
@@ -230,6 +233,65 @@ exports.getUpcomingAppointments = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des prochains rendez-vous'
+    });
+  }
+};
+
+// Mettre à jour le statut d'un rendez-vous
+exports.updateAppointmentStatus = async (req, res) => {
+  try {
+    console.log('=== Début de updateAppointmentStatus ===');
+    console.log('Headers:', req.headers);
+    console.log('Params:', req.params);
+    console.log('Body:', req.body);
+    
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    console.log(`Tentative de mise à jour du rendez-vous ${id} avec le statut:`, status);
+
+    // Vérifier si le statut est valide
+    const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed', 'missed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        message: 'Statut invalide. Les statuts valides sont : ' + validStatuses.join(', ')
+      });
+    }
+
+    console.log('Recherche du rendez-vous avec ID:', id);
+    // Trouver le rendez-vous
+    const appointment = await RendezVous.findByPk(id);
+    if (!appointment) {
+      console.error('ERREUR: Rendez-vous non trouvé avec ID:', id);
+      return res.status(404).json({ 
+        success: false,
+        message: 'Rendez-vous non trouvé',
+        id: id
+      });
+    }
+
+    console.log('Rendez-vous trouvé:', appointment);
+    // Mettre à jour le statut
+    await appointment.update({ status });
+
+    // Récupérer le rendez-vous mis à jour avec les informations du patient
+    const updatedAppointment = await RendezVous.findByPk(id, {
+      include: [{
+        model: Patient,
+        attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
+      }]
+    });
+
+    console.log('Rendez-vous mis à jour avec succès:', updatedAppointment);
+    res.json({
+      success: true,
+      message: 'Statut du rendez-vous mis à jour avec succès',
+      data: updatedAppointment
+    });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour du statut:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la mise à jour du statut du rendez-vous'
     });
   }
 };

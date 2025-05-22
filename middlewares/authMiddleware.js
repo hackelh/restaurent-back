@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/config');
-const User = require('../models/User');
+const User = require('../models/sequelize/User');
 
 exports.protect = async (req, res, next) => {
   try {
@@ -25,7 +25,7 @@ exports.protect = async (req, res, next) => {
       const decoded = jwt.verify(token, JWT_SECRET);
 
       // Ajouter l'utilisateur à la requête
-      req.user = await User.findById(decoded.id);
+      req.user = await User.findByPk(decoded.id);
       
       if (!req.user) {
         return res.status(401).json({

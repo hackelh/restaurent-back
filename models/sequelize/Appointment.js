@@ -3,6 +3,13 @@ const { Model } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
   class Appointment extends Model {
     static associate(models) {
+      // Définir les associations ici
+      Appointment.belongsTo(models.Patient, {
+        foreignKey: 'patientId',
+        as: 'patient'
+      });
+    }
+    static associate(models) {
       Appointment.belongsTo(models.Patient, {
         foreignKey: 'patientId',
         as: 'patient'
@@ -19,7 +26,7 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
-    dateTime: {
+    date: {
       type: DataTypes.DATE,
       allowNull: false
     },
@@ -32,8 +39,9 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     status: {
-      type: DataTypes.ENUM('scheduled', 'completed', 'cancelled'),
-      defaultValue: 'scheduled'
+      type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'completed', 'missed'),
+      defaultValue: 'pending',
+      allowNull: false
     }
   }, {
     sequelize,

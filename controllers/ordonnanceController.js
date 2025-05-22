@@ -8,23 +8,26 @@ moment.locale('fr');
 // Récupérer toutes les ordonnances avec filtres optionnels
 exports.getOrdonnances = async (req, res) => {
   try {
-    const { patientId, status, startDate, endDate, search } = req.query;
-    const where = {};
-
-    // Appliquer les filtres si présents
-    if (patientId) where.patientId = patientId;
-    if (status) where.status = status;
+    const { search, status, startDate, endDate } = req.query;
+    
+    // Construire les conditions de recherche
+    let whereConditions = {};
+    
+    if (status) {
+      whereConditions.status = status;
+    }
+    
     if (startDate && endDate) {
-      where.date = {
+      whereConditions.createdAt = {
         [Op.between]: [new Date(startDate), new Date(endDate)]
       };
     }
 
     const ordonnances = await Ordonnance.findAll({
-      where,
+      where: whereConditions,
       include: [{
         model: Patient,
-        attributes: ['id', 'nom', 'prenom', 'telephone', 'email'],
+        attributes: ['nom', 'prenom', 'dateNaissance', 'telephone', 'email'],
         where: search ? {
           [Op.or]: [
             { nom: { [Op.like]: `%${search}%` } },
@@ -32,12 +35,11 @@ exports.getOrdonnances = async (req, res) => {
           ]
         } : undefined
       }],
-      order: [['date', 'DESC']]
+      order: [['createdAt', 'DESC']]
     });
 
-    res.status(200).json({
+    res.json({
       success: true,
-      count: ordonnances.length,
       data: ordonnances
     });
   } catch (error) {
@@ -53,10 +55,11 @@ exports.getOrdonnances = async (req, res) => {
 // Récupérer une ordonnance par son ID
 exports.getOrdonnanceById = async (req, res) => {
   try {
-    const ordonnance = await Ordonnance.findByPk(req.params.id, {
+    const { id } = req.params;
+    const ordonnance = await Ordonnance.findByPk(id, {
       include: [{
         model: Patient,
-        attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
+        attributes: ['nom', 'prenom', 'dateNaissance', 'telephone', 'email']
       }]
     });
 
@@ -67,7 +70,7 @@ exports.getOrdonnanceById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    res.json({
       success: true,
       data: ordonnance
     });
@@ -84,15 +87,7 @@ exports.getOrdonnanceById = async (req, res) => {
 // Créer une nouvelle ordonnance
 exports.createOrdonnance = async (req, res) => {
   try {
-    const { patientId, contenu, status, notes } = req.body;
-
-    // Validation des données
-    if (!patientId || !contenu) {
-      return res.status(400).json({
-        success: false,
-        message: 'Le patientId et le contenu sont requis'
-      });
-    }
+    const { patientId, contenu, status = 'active', notes } = req.body;
 
     // Vérifier si le patient existe
     const patient = await Patient.findByPk(patientId);
@@ -103,27 +98,17 @@ exports.createOrdonnance = async (req, res) => {
       });
     }
 
-    // Créer l'ordonnance
     const ordonnance = await Ordonnance.create({
       patientId,
-      contenu: typeof contenu === 'string' ? contenu : JSON.stringify(contenu),
-      status: status || 'active',
-      notes,
-      date: new Date()
-    });
-
-    // Récupérer l'ordonnance avec les informations du patient
-    const ordonnanceWithPatient = await Ordonnance.findByPk(ordonnance.id, {
-      include: [{
-        model: Patient,
-        attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
-      }]
+      contenu,
+      status,
+      notes
     });
 
     res.status(201).json({
       success: true,
-      message: 'Ordonnance créée avec succès',
-      data: ordonnanceWithPatient
+      data: ordonnance,
+      message: 'Ordonnance créée avec succès'
     });
   } catch (error) {
     console.error('Erreur lors de la création de l\'ordonnance:', error);
@@ -139,9 +124,8 @@ exports.createOrdonnance = async (req, res) => {
 exports.updateOrdonnance = async (req, res) => {
   try {
     const { id } = req.params;
-    const { patientId, contenu, status, notes } = req.body;
+    const { patientId, contenu, notes } = req.body;
 
-    // Vérifier si l'ordonnance existe
     const ordonnance = await Ordonnance.findByPk(id);
     if (!ordonnance) {
       return res.status(404).json({
@@ -150,37 +134,26 @@ exports.updateOrdonnance = async (req, res) => {
       });
     }
 
-    // Si patientId est modifié, vérifier si le nouveau patient existe
-    if (patientId && patientId !== ordonnance.patientId) {
+    if (patientId) {
       const patient = await Patient.findByPk(patientId);
       if (!patient) {
         return res.status(404).json({
           success: false,
-          message: 'Nouveau patient non trouvé'
+          message: 'Patient non trouvé'
         });
       }
     }
 
-    // Mettre à jour l'ordonnance
     await ordonnance.update({
       patientId: patientId || ordonnance.patientId,
-      contenu: contenu ? (typeof contenu === 'string' ? contenu : JSON.stringify(contenu)) : ordonnance.contenu,
-      status: status || ordonnance.status,
-      notes: notes !== undefined ? notes : ordonnance.notes
+      contenu: contenu || ordonnance.contenu,
+      notes: notes || ordonnance.notes
     });
 
-    // Récupérer l'ordonnance mise à jour avec les informations du patient
-    const updatedOrdonnance = await Ordonnance.findByPk(id, {
-      include: [{
-        model: Patient,
-        attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
-      }]
-    });
-
-    res.status(200).json({
+    res.json({
       success: true,
-      message: 'Ordonnance mise à jour avec succès',
-      data: updatedOrdonnance
+      data: ordonnance,
+      message: 'Ordonnance mise à jour avec succès'
     });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de l\'ordonnance:', error);
@@ -196,9 +169,8 @@ exports.updateOrdonnance = async (req, res) => {
 exports.deleteOrdonnance = async (req, res) => {
   try {
     const { id } = req.params;
-
-    // Vérifier si l'ordonnance existe
     const ordonnance = await Ordonnance.findByPk(id);
+
     if (!ordonnance) {
       return res.status(404).json({
         success: false,
@@ -206,13 +178,11 @@ exports.deleteOrdonnance = async (req, res) => {
       });
     }
 
-    // Supprimer l'ordonnance
     await ordonnance.destroy();
 
-    res.status(200).json({
+    res.json({
       success: true,
-      message: 'Ordonnance supprimée avec succès',
-      data: { id }
+      message: 'Ordonnance supprimée avec succès'
     });
   } catch (error) {
     console.error('Erreur lors de la suppression de l\'ordonnance:', error);
@@ -224,22 +194,19 @@ exports.deleteOrdonnance = async (req, res) => {
   }
 };
 
-// Changer le statut d'une ordonnance
+// Mettre à jour le statut d'une ordonnance
 exports.updateOrdonnanceStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    // Validation du statut
-    const validStatuses = ['active', 'completed', 'cancelled'];
-    if (!validStatuses.includes(status)) {
+    if (!['active', 'completed', 'cancelled'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Statut invalide. Les statuts valides sont : ' + validStatuses.join(', ')
+        message: 'Statut invalide'
       });
     }
 
-    // Vérifier si l'ordonnance existe
     const ordonnance = await Ordonnance.findByPk(id);
     if (!ordonnance) {
       return res.status(404).json({
@@ -248,27 +215,111 @@ exports.updateOrdonnanceStatus = async (req, res) => {
       });
     }
 
-    // Mettre à jour le statut
     await ordonnance.update({ status });
 
-    // Récupérer l'ordonnance mise à jour avec les informations du patient
-    const updatedOrdonnance = await Ordonnance.findByPk(id, {
+    res.json({
+      success: true,
+      data: ordonnance,
+      message: 'Statut de l\'ordonnance mis à jour avec succès'
+    });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour du statut:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la mise à jour du statut',
+      error: error.message
+    });
+  }
+};
+
+// Générer un PDF pour une ordonnance
+exports.generatePDF = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Récupérer l'ordonnance avec les informations du patient
+    const ordonnance = await Ordonnance.findByPk(id, {
       include: [{
         model: Patient,
-        attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
+        attributes: ['nom', 'prenom', 'dateNaissance', 'telephone', 'email', 'adresse']
       }]
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Statut de l\'ordonnance mis à jour avec succès',
-      data: updatedOrdonnance
+    if (!ordonnance) {
+      return res.status(404).json({
+        success: false,
+        message: 'Ordonnance non trouvée'
+      });
+    }
+
+    // Créer un nouveau document PDF
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 50
     });
+
+    // En-têtes pour le téléchargement
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=ordonnance_${id}.pdf`);
+
+    // Pipe le PDF vers la réponse
+    doc.pipe(res);
+
+    // En-tête du document
+    doc.fontSize(20).text('ORDONNANCE MÉDICALE', { align: 'center' });
+    doc.moveDown();
+
+    // Informations du patient
+    doc.fontSize(12);
+    doc.text('PATIENT:', { underline: true });
+    doc.text(`Nom: ${ordonnance.Patient.nom} ${ordonnance.Patient.prenom}`);
+    if (ordonnance.Patient.dateNaissance) {
+      doc.text(`Date de naissance: ${moment(ordonnance.Patient.dateNaissance).format('DD/MM/YYYY')}`);
+    }
+    if (ordonnance.Patient.adresse) {
+      doc.text(`Adresse: ${ordonnance.Patient.adresse}`);
+    }
+    if (ordonnance.Patient.telephone) {
+      doc.text(`Téléphone: ${ordonnance.Patient.telephone}`);
+    }
+
+    doc.moveDown();
+
+    // Date de l'ordonnance
+    doc.text(`Date: ${moment(ordonnance.createdAt).format('DD/MM/YYYY')}`);
+    doc.moveDown();
+
+    // Contenu de l'ordonnance
+    doc.text('PRESCRIPTION:', { underline: true });
+    doc.moveDown();
+
+    // Formatter le contenu
+    const contenu = typeof ordonnance.contenu === 'string' 
+      ? ordonnance.contenu 
+      : JSON.stringify(ordonnance.contenu, null, 2);
+
+    doc.font('Courier').fontSize(10).text(contenu);
+    doc.moveDown();
+
+    // Notes si présentes
+    if (ordonnance.notes) {
+      doc.font('Helvetica').fontSize(12);
+      doc.text('Notes:', { underline: true });
+      doc.text(ordonnance.notes);
+    }
+
+    // Pied de page
+    doc.moveDown();
+    doc.fontSize(10).text('Cette ordonnance a été générée électroniquement.', { align: 'center' });
+
+    // Finaliser le PDF
+    doc.end();
+
   } catch (error) {
-    console.error('Erreur lors de la mise à jour du statut de l\'ordonnance:', error);
+    console.error('Erreur lors de la génération du PDF:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la mise à jour du statut de l\'ordonnance',
+      message: 'Erreur lors de la génération du PDF',
       error: error.message
     });
   }

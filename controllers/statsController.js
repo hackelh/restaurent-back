@@ -109,7 +109,20 @@ exports.getStats = async (req, res, next) => {
       });
 
       const stats = {
-        todayAppointments,
+        todayAppointments: todayAppointmentsDetails.map(appointment => ({
+          id: appointment.id,
+          date: appointment.date,
+          type: appointment.type,
+          status: appointment.status,
+          patient: appointment.Patient ? {
+            id: appointment.Patient.id,
+            nom: appointment.Patient.nom,
+            prenom: appointment.Patient.prenom,
+            telephone: appointment.Patient.telephone,
+            email: appointment.Patient.email
+          } : null
+        })),
+        todayAppointmentsCount,
         totalPatients,
         monthlyPrescriptions,
         upcomingAppointments
@@ -121,7 +134,7 @@ exports.getStats = async (req, res, next) => {
       });
     }
 
-    // Pour les autres routes /stats, renvoyer les statistiques complètes
+    // Traitement des données pour le dashboard
     const stats = {
       totalPatients,
       todayAppointmentsCount,
@@ -139,7 +152,25 @@ exports.getStats = async (req, res, next) => {
           email: appointment.Patient.email
         } : null
       })),
-      upcomingAppointments: []
+      statsByStatus: todayAppointmentsDetails.reduce((acc, appointment) => {
+        acc[appointment.status] = (acc[appointment.status] || 0) + 1;
+        return acc;
+      }, {}),
+      statsByType: todayAppointmentsDetails.reduce((acc, appointment) => {
+        acc[appointment.type] = (acc[appointment.type] || 0) + 1;
+        return acc;
+      }, {}),
+      upcomingAppointments: upcomingAppointments.map(appointment => ({
+        id: appointment.id,
+        date: appointment.date,
+        type: appointment.type,
+        status: appointment.status,
+        patient: appointment.Patient ? {
+          id: appointment.Patient.id,
+          nom: appointment.Patient.nom,
+          prenom: appointment.Patient.prenom
+        } : null
+      }))
     };
 
     res.status(200).json({

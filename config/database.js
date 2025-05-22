@@ -21,10 +21,7 @@ const connectDB = async () => {
     await sequelize.authenticate();
     console.log('MySQL Connected successfully.');
 
-    // Désactiver temporairement les contraintes de clé étrangère
-    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
-
-    // Synchroniser chaque modèle individuellement dans le bon ordre
+    // Synchroniser les modèles sans forcer la recréation des tables
     const models = [
       require('../models/sequelize/User'),
       require('../models/sequelize/Patient'),
@@ -33,13 +30,8 @@ const connectDB = async () => {
       require('../models/sequelize/Ordonnance')
     ];
 
-    for (const model of models) {
-      await model.sync({ force: true });
-      console.log(`Table ${model.name} synchronized`);
-    }
-
-    // Réactiver les contraintes de clé étrangère
-    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+    // Synchroniser tous les modèles sans forcer la recréation
+    await sequelize.sync({ alter: true });
     console.log('Database synchronized successfully');
   } catch (error) {
     console.error('Unable to connect to the database:', error);
