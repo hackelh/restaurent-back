@@ -18,7 +18,7 @@ app.use(helmet({
 
 // Configuration CORS
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: ['http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: ['Content-Range', 'X-Content-Range'],
@@ -30,8 +30,41 @@ app.use(cors(corsOptions));
 
 // Middleware de logging des requêtes
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
-  console.log('Headers:', req.headers);
+  const start = Date.now();
+  
+  // Log de la requête entrante
+  console.log(`\n=== NOUVELLE REQUÊTE ===`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Params:', JSON.stringify(req.params, null, 2));
+  console.log('Query:', JSON.stringify(req.query, null, 2));
+  
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+  }
+  
+  // Sauvegarder la fonction d'envoi originale
+  const originalSend = res.send;
+  
+  // Intercepter la réponse
+  res.send = function(body) {
+    // Calculer le temps de traitement
+    const duration = Date.now() - start;
+    
+    // Log de la réponse
+    console.log(`\n=== RÉPONSE ===`);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
+    
+    if (res.statusCode >= 400) {
+      console.error('Erreur:', body);
+    } else {
+      console.log('Réponse:', JSON.stringify(body, null, 2));
+    }
+    
+    // Appeler la fonction d'envoi originale
+    originalSend.call(this, body);
+  };
+  
   next();
 });
 

@@ -21,18 +21,34 @@ const connectDB = async () => {
     await sequelize.authenticate();
     console.log('MySQL Connected successfully.');
 
-    // Synchroniser les modèles sans forcer la recréation des tables
-    const models = [
-      require('../models/sequelize/User'),
-      require('../models/sequelize/Patient'),
-      require('../models/sequelize/RendezVous'),
-      require('../models/sequelize/SuiviMedical'),
-      require('../models/sequelize/Ordonnance')
-    ];
+    console.log('Chargement des modèles...');
+    // Charger les modèles
+    const models = {
+      User: require('../models/sequelize/User'),
+      Patient: require('../models/sequelize/Patient'),
+      Appointment: require('../models/sequelize/Appointment'),
+      SuiviMedical: require('../models/sequelize/SuiviMedical'),
+      Ordonnance: require('../models/sequelize/Ordonnance')
+    };
 
-    // Synchroniser tous les modèles sans forcer la recréation
-    await sequelize.sync({ alter: true });
-    console.log('Database synchronized successfully');
+    console.log('Modèles chargés:', Object.keys(models));
+
+    // Vérifier les tables existantes
+    const [results] = await sequelize.query("SHOW TABLES");
+    console.log('Tables existantes dans la base de données:', results.map(r => Object.values(r)[0]));
+
+    // Synchroniser tous les modèles avec alter: true pour mettre à jour le schéma si nécessaire
+    console.log('Début de la synchronisation de la base de données...');
+    await sequelize.sync({ alter: { drop: false } });
+    console.log('Base de données synchronisée avec succès');
+    
+    // Vérifier la structure de la table Ordonnances
+    try {
+      const [columns] = await sequelize.query("SHOW COLUMNS FROM Ordonnances");
+      console.log('Colonnes de la table Ordonnances:', columns.map(c => c.Field));
+    } catch (err) {
+      console.error('Erreur lors de la vérification de la table Ordonnances:', err.message);
+    }
   } catch (error) {
     console.error('Unable to connect to the database:', error);
     process.exit(1);

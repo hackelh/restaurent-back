@@ -1,4 +1,4 @@
-const { RendezVous, Patient, SuiviMedical } = require('../models/sequelize');
+const { Appointment, Patient, SuiviMedical } = require('../models/sequelize');
 const { Op } = require('sequelize');
 
 // @desc    Obtenir les statistiques du tableau de bord
@@ -47,7 +47,7 @@ exports.getStats = async (req, res, next) => {
         where: { dentisteId }
       }),
       // Nombre de rendez-vous aujourd'hui
-      RendezVous.count({
+      Appointment.count({
         where: {
           dentisteId,
           date: {
@@ -60,15 +60,19 @@ exports.getStats = async (req, res, next) => {
       }),
       // Nombre de prescriptions ce mois-ci
       SuiviMedical.count({
+        include: [{
+          model: Patient,
+          as: 'patient',
+          where: { dentisteId }
+        }],
         where: {
-          dentisteId,
-          dateConsultation: {
+          date: {
             [Op.between]: [debutMois, finMois]
           }
         }
       }),
       // Détails des rendez-vous d'aujourd'hui
-      RendezVous.findAll({
+      Appointment.findAll({
         where: {
           dentisteId,
           date: {
@@ -80,6 +84,7 @@ exports.getStats = async (req, res, next) => {
         },
         include: [{
           model: Patient,
+          as: 'patient',
           attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
         }],
         order: [['date', 'ASC']]
@@ -90,7 +95,7 @@ exports.getStats = async (req, res, next) => {
     // Si la route est /api/stats/dashboard, inclure les prochains rendez-vous
     if (req.originalUrl.endsWith('/dashboard')) {
       console.log('Récupération des prochains rendez-vous');
-      const upcomingAppointments = await RendezVous.findAll({
+      const upcomingAppointments = await Appointment.findAll({
         where: {
           dentisteId,
           date: {
@@ -102,6 +107,7 @@ exports.getStats = async (req, res, next) => {
         },
         include: [{
           model: Patient,
+          as: 'patient',
           attributes: ['id', 'nom', 'prenom']
         }],
         order: [['date', 'ASC']],
@@ -195,9 +201,9 @@ exports.getStats = async (req, res, next) => {
 };
 
 // @desc    Obtenir les statistiques des rendez-vous par période
-// @route   GET /api/stats/rendezvous
+// @route   GET /api/stats/Appointment
 // @access  Private
-exports.getRendezVousStats = async (req, res, next) => {
+exports.getAppointmentStats = async (req, res, next) => {
   try {
     const { debut, fin } = req.query;
     const whereClause = {
@@ -210,19 +216,19 @@ exports.getRendezVousStats = async (req, res, next) => {
       if (fin) whereClause.date[Op.lte] = new Date(fin);
     }
 
-    const rendezVous = await RendezVous.findAll({
+    const appointment = await appointment.findAll({
       where: whereClause,
       attributes: ['date', 'status'],
       order: [['date', 'ASC']]
     });
 
     const stats = {
-      total: rendezVous.length,
+      total: appointment.length,
       parStatut: {
-        planifie: rendezVous.filter(rdv => rdv.status === 'planifié').length,
-        confirme: rendezVous.filter(rdv => rdv.status === 'confirmé').length,
-        annule: rendezVous.filter(rdv => rdv.status === 'annulé').length,
-        termine: rendezVous.filter(rdv => rdv.status === 'terminé').length
+        planifie: appointment.filter(rdv => rdv.status === 'planifié').length,
+        confirme: appointment.filter(rdv => rdv.status === 'confirmé').length,
+        annule: appointment.filter(rdv => rdv.status === 'annulé').length,
+        termine: appointment.filter(rdv => rdv.status === 'terminé').length
       }
     };
 

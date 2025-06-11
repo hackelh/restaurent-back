@@ -1,13 +1,67 @@
+const { sequelize } = require('../models/sequelize');
+const { Op } = require('sequelize');
 const Ordonnance = require('../models/sequelize/Ordonnance');
 const Patient = require('../models/sequelize/Patient');
-const { Op } = require('sequelize');
 const PDFDocument = require('pdfkit');
 const moment = require('moment');
 moment.locale('fr');
 
+// Vérifier que le patient appartient au dentiste connecté
+async function verifyPatientAccess(patientId, dentisteId) {
+  const patient = await Patient.findOne({
+    where: { id: patientId, dentisteId }
+  });
+  if (!patient) {
+    throw new Error('Patient non trouvé ou accès non autorisé');
+  }
+  return patient;
+}
+
+// Créer une nouvelle ordonnance
+exports.createOrdonnance = async (req, res) => {
+  try {
+    const { patientId, contenu, notes } = req.body;
+
+    // Vérifier que le patient appartient au dentiste connecté
+    await verifyPatientAccess(patientId, req.user.id);
+
+    // Créer l'ordonnance
+    const ordonnance = await Ordonnance.create({
+      patientId,
+      dentisteId: req.user.id,
+      contenu,
+      notes,
+      date: new Date()
+    });
+
+    // Récupérer l'ordonnance avec les informations du patient
+    const ordonnanceWithPatient = await Ordonnance.findOne({
+      where: { id: ordonnance.id },
+      include: [{
+        model: Patient,
+        as: 'patient',
+        attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
+      }]
+    });
+
+    res.status(201).json({
+      success: true,
+      data: ordonnanceWithPatient
+    });
+  } catch (error) {
+    console.error('Erreur lors de la création de l\'ordonnance:', error);
+    res.status(error.message.includes('accès non autorisé') ? 403 : 500).json({
+      success: false,
+      message: error.message || 'Erreur lors de la création de l\'ordonnance'
+    });
+  }
+};
+
 // Récupérer toutes les ordonnances avec filtres optionnels
 exports.getOrdonnances = async (req, res) => {
   try {
+    console.log('Début getOrdonnances - Query:', req.query);
+    
     const { search, status, startDate, endDate } = req.query;
     
     // Construire les conditions de recherche
@@ -23,20 +77,40 @@ exports.getOrdonnances = async (req, res) => {
       };
     }
 
+    console.log('Conditions de recherche:', JSON.stringify(whereConditions, null, 2));
+
+    // Construire les conditions de recherche pour le patient
+    let patientWhere = {};
+    if (search) {
+      patientWhere = {
+        [Op.or]: [
+          { nom: { [Op.like]: `%${search}%` } },
+          { prenom: { [Op.like]: `%${search}%` } }
+        ]
+      };
+    }
+
+    console.log('Conditions patient:', JSON.stringify(patientWhere, null, 2));
+
     const ordonnances = await Ordonnance.findAll({
-      where: whereConditions,
+      where: {
+        ...whereConditions,
+        dentisteId: req.user.id // Filtre par l'ID du dentiste connecté
+      },
       include: [{
         model: Patient,
-        attributes: ['nom', 'prenom', 'dateNaissance', 'telephone', 'email'],
-        where: search ? {
-          [Op.or]: [
-            { nom: { [Op.like]: `%${search}%` } },
-            { prenom: { [Op.like]: `%${search}%` } }
-          ]
-        } : undefined
+        as: 'patient',
+        attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email'],
+        where: {
+          dentisteId: req.user.id, // S'assure que le patient appartient aussi au dentiste
+          ...(Object.keys(patientWhere).length > 0 ? patientWhere : {})
+        },
+        required: true // Ne retourne que les ordonnances avec des patients valides
       }],
       order: [['createdAt', 'DESC']]
     });
+
+    console.log(`Ordonnances trouvées: ${ordonnances.length}`);
 
     res.json({
       success: true,
@@ -44,10 +118,12 @@ exports.getOrdonnances = async (req, res) => {
     });
   } catch (error) {
     console.error('Erreur lors de la récupération des ordonnances:', error);
+    console.error('Stack:', error.stack);
+    
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des ordonnances',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Erreur serveur'
     });
   }
 };
@@ -55,22 +131,33 @@ exports.getOrdonnances = async (req, res) => {
 // Récupérer une ordonnance par son ID
 exports.getOrdonnanceById = async (req, res) => {
   try {
-    const { id } = req.params;
-    const ordonnance = await Ordonnance.findByPk(id, {
+    if (!req.params.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de l\'ordonnance manquant'
+      });
+    }
+
+    const ordonnance = await Ordonnance.findOne({
+      where: { 
+        id: req.params.id,
+        dentisteId: req.user.id // Assure que seul le dentiste propriétaire peut accéder
+      },
       include: [{
         model: Patient,
-        attributes: ['nom', 'prenom', 'dateNaissance', 'telephone', 'email']
+        as: 'patient',
+        attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
       }]
     });
 
     if (!ordonnance) {
       return res.status(404).json({
         success: false,
-        message: 'Ordonnance non trouvée'
+        message: 'Ordonnance non trouvée ou accès non autorisé'
       });
     }
 
-    res.json({
+    res.status(200).json({
       success: true,
       data: ordonnance
     });
@@ -79,7 +166,7 @@ exports.getOrdonnanceById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération de l\'ordonnance',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -89,25 +176,51 @@ exports.createOrdonnance = async (req, res) => {
   try {
     const { patientId, contenu, status = 'active', notes } = req.body;
 
-    // Vérifier si le patient existe
-    const patient = await Patient.findByPk(patientId);
+    // Vérifier si le patient existe et appartient au dentiste
+    const patient = await Patient.findOne({
+      where: { 
+        id: patientId,
+        dentisteId: req.user.id 
+      }
+    });
+    
     if (!patient) {
       return res.status(404).json({
         success: false,
-        message: 'Patient non trouvé'
+        message: 'Patient non trouvé ou accès non autorisé'
       });
     }
 
+    // Créer l'ordonnance avec le dentisteId
     const ordonnance = await Ordonnance.create({
       patientId,
       contenu,
       status,
-      notes
+      notes,
+      dentisteId: req.user.id,
+      date: new Date() // S'assurer que la date est définie
+    });
+
+    // Récupérer l'ordonnance avec les informations du patient et du dentiste
+    const ordonnanceComplete = await Ordonnance.findOne({
+      where: { id: ordonnance.id },
+      include: [
+        {
+          model: Patient,
+          as: 'patient',
+          attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
+        },
+        {
+          model: require('../models/sequelize/User'),
+          as: 'dentiste',
+          attributes: ['id', 'nom', 'prenom', 'email']
+        }
+      ]
     });
 
     res.status(201).json({
       success: true,
-      data: ordonnance,
+      data: ordonnanceComplete,
       message: 'Ordonnance créée avec succès'
     });
   } catch (error) {
@@ -126,12 +239,12 @@ exports.updateOrdonnance = async (req, res) => {
     const { id } = req.params;
     const { patientId, contenu, notes } = req.body;
 
-    const ordonnance = await Ordonnance.findByPk(id);
+    const ordonnance = await Ordonnance.findOne({
+      where: { id: req.params.id, dentisteId: req.user.id }
+    });
+    
     if (!ordonnance) {
-      return res.status(404).json({
-        success: false,
-        message: 'Ordonnance non trouvée'
-      });
+      return res.status(404).json({ error: 'Ordonnance non trouvée ou accès non autorisé' });
     }
 
     if (patientId) {
@@ -167,29 +280,62 @@ exports.updateOrdonnance = async (req, res) => {
 
 // Supprimer une ordonnance
 exports.deleteOrdonnance = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
-    const { id } = req.params;
-    const ordonnance = await Ordonnance.findByPk(id);
-
-    if (!ordonnance) {
-      return res.status(404).json({
+    if (!req.params.id) {
+      await transaction.rollback();
+      return res.status(400).json({
         success: false,
-        message: 'Ordonnance non trouvée'
+        message: 'ID de l\'ordonnance manquant'
       });
     }
 
-    await ordonnance.destroy();
+    // Vérifier d'abord si l'ordonnance existe et appartient au dentiste
+    const ordonnance = await Ordonnance.findOne({
+      where: { 
+        id: req.params.id,
+        dentisteId: req.user.id
+      },
+      transaction
+    });
 
-    res.json({
+    if (!ordonnance) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Ordonnance non trouvée ou accès non autorisé'
+      });
+    }
+
+    // Supprimer l'ordonnance
+    await ordonnance.destroy({ transaction });
+    
+    // Valider la transaction
+    await transaction.commit();
+    
+    res.status(200).json({
       success: true,
       message: 'Ordonnance supprimée avec succès'
     });
   } catch (error) {
+    // Annuler la transaction en cas d'erreur
+    await transaction.rollback();
+    
     console.error('Erreur lors de la suppression de l\'ordonnance:', error);
+    
+    // Gérer les erreurs spécifiques
+    if (error.name === 'SequelizeForeignKeyConstraintError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Impossible de supprimer cette ordonnance car elle est liée à d\'autres enregistrements'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la suppression de l\'ordonnance',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

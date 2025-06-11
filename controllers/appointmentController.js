@@ -1,297 +1,172 @@
-const { RendezVous, Patient, User } = require('../models/sequelize');
+const { Appointment, Patient } = require('../models/sequelize');
 const { Op } = require('sequelize');
-const moment = require('moment');
 
-// Log pour le débogage
-console.log('Modèles chargés:', { RendezVous, Patient, User });
+// Debug logs
+console.log('Models loaded:', { Appointment, Patient });
 
-// Créer un nouveau rendez-vous
 exports.createAppointment = async (req, res) => {
   try {
-    const { patientId, date, type, notes } = req.body;
-    const dentisteId = req.user.id;
+    const appointment = await Appointment.create({
+      ...req.body,
+      dentisteId: req.user.id
+    });
+    res.status(201).json(appointment);
+  } catch (error) {
+    console.error("Erreur createAppointment:", error);
+    res.status(400).json({ error: 'Erreur lors de la création du rendez-vous' });
+  }
+};
 
-    // Vérifier si le patient existe
-    const patient = await Patient.findByPk(patientId);
-    if (!patient) {
-      return res.status(404).json({ message: 'Patient non trouvé' });
-    }
+exports.getAppointments = async (req, res) => {
+  try {
+    console.log('Récupération des rendez-vous pour le dentiste:', req.user.id);
 
-    // Convertir la date en objet moment
-    const appointmentDate = moment(date);
-    const startTime = appointmentDate.clone().subtract(25, 'minutes');
-    const endTime = appointmentDate.clone().add(25, 'minutes');
+    const appointments = await Appointment.findAll({
+      where: { 
+        dentisteId: req.user.id 
+      },
+      where: { dentisteId: req.user.id },
+      include: [{ 
+        model: Patient,
+        as: 'patient',
+        attributes: ['id', 'nom', 'prenom', 'email', 'telephone', 'dateNaissance'],
+        where: { dentisteId: req.user.id }
+      }],
+      order: [['date', 'DESC']]
+    });
+    res.json(appointments);
+  } catch (error) {
+    console.error("Erreur getAppointments:", error);
+    res.status(500).json({ error: 'Erreur lors de la récupération des rendez-vous' });
+  }
+};
 
-    // Vérifier si un rendez-vous existe déjà dans cet intervalle
-    const existingAppointment = await RendezVous.findOne({
+exports.getAppointment = async (req, res) => {
+  try {
+    console.log('Getting appointment:', req.params.id);
+    const appointment = await Appointment.findOne({
       where: {
-        dentisteId,
+        id: req.params.id,
+        dentisteId: req.user.id
+      },
+      include: [{ model: Patient, as: 'patient' }]
+    });
+    if (!appointment) return res.status(404).json({ error: 'Rendez-vous non trouvé' });
+    res.json(appointment);
+  } catch (error) {
+    console.error("Erreur getAppointment:", error);
+    res.status(500).json({ error: 'Erreur lors de la récupération du rendez-vous' });
+  }
+};
+
+exports.updateAppointment = async (req, res) => {
+  try {
+    const appointment = await Appointment.findByPk(req.params.id);
+    if (!appointment) return res.status(404).json({ error: 'Rendez-vous non trouvé' });
+
+    await appointment.update(req.body);
+    res.json(appointment);
+  } catch (error) {
+    console.error("Erreur updateAppointment:", error);
+    res.status(400).json({ error: 'Erreur lors de la mise à jour du rendez-vous' });
+  }
+};
+
+exports.deleteAppointment = async (req, res) => {
+  try {
+    const appointment = await Appointment.findByPk(req.params.id);
+    if (!appointment) return res.status(404).json({ error: 'Rendez-vous non trouvé' });
+
+    await appointment.destroy();
+    res.json({ message: 'Rendez-vous supprimé' });
+  } catch (error) {
+    console.error("Erreur deleteAppointment:", error);
+    res.status(500).json({ error: 'Erreur lors de la suppression du rendez-vous' });
+  }
+};
+
+exports.updateAppointmentStatus = async (req, res) => {
+  try {
+    const appointment = await Appointment.findByPk(req.params.id);
+    if (!appointment) return res.status(404).json({ error: 'Rendez-vous non trouvé' });
+
+    appointment.status = req.body.status;
+    await appointment.save();
+    res.json(appointment);
+  } catch (error) {
+    console.error("Erreur updateAppointmentStatus:", error);
+    res.status(400).json({ error: 'Erreur lors de la mise à jour du statut' });
+  }
+};
+
+exports.getUpcomingAppointments = async (req, res) => {
+  try {
+    const appointments = await Appointment.findAll({
+      where: {
+        dentisteId: req.user.id,
         date: {
-          [Op.between]: [startTime.toDate(), endTime.toDate()]
-        },
-        status: {
-          [Op.ne]: 'cancelled'
+          [Op.gte]: new Date()
         }
+      },
+      include: [{ model: Patient, as: 'patient' }],
+      order: [['date', 'ASC']],
+      limit: 5
+    });
+    res.json(appointments);
+  } catch (error) {
+    console.error("Erreur getUpcomingAppointments:", error);
+    res.status(500).json({ error: 'Erreur lors de la récupération des rendez-vous à venir' });
+  }
+};
+
+exports.getPatientAppointments = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    // Vérifier que le patient existe et appartient au dentiste connecté
+    const patient = await Patient.findOne({
+      where: {
+        id: patientId,
+        dentisteId: req.user.id
       }
     });
 
-    if (existingAppointment) {
-      return res.status(409).json({
-        message: 'Un rendez-vous existe déjà dans cet intervalle de temps'
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient non trouvé ou accès non autorisé'
       });
     }
 
-    // Créer le rendez-vous
-    const appointment = await RendezVous.create({
-      date: appointmentDate.toDate(),
-      type,
-      notes,
-      patientId,
-      dentisteId,
-      status: 'pending',
-      duree: 25 // Durée fixée à 25 minutes
-    });
-
-    // Retourner le rendez-vous créé avec les informations du patient
-    const newAppointment = await RendezVous.findByPk(appointment.id, {
-      include: [
-        {
-          model: Patient,
-          attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
-        }
-      ]
-    });
-
-    res.status(201).json({
-      message: 'Rendez-vous créé avec succès',
-      data: newAppointment
-    });
-  } catch (error) {
-    console.error('Erreur lors de la création du rendez-vous:', error);
-    res.status(500).json({ message: 'Erreur lors de la création du rendez-vous' });
-  }
-};
-
-// Obtenir tous les rendez-vous
-exports.getAppointments = async (req, res) => {
-  try {
-    const dentisteId = req.user.id;
-    const { date, upcoming } = req.query;
-
-    let whereClause = { dentisteId };
-
-    // Filtre par date
-    if (date) {
-      const startOfDay = moment(date).startOf('day').toDate();
-      const endOfDay = moment(date).endOf('day').toDate();
-      whereClause.date = {
-        [Op.between]: [startOfDay, endOfDay]
-      };
-    }
-
-    // Filtre pour les rendez-vous à venir
-    if (upcoming === 'true') {
-      whereClause.date = {
-        [Op.gte]: new Date()
-      };
-    }
-
-    const appointments = await RendezVous.findAll({
-      where: whereClause,
-      include: [
-        {
-          model: Patient,
-          attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
-        }
-      ],
-      order: [['date', 'ASC']]
-    });
-
-    res.json({
-      message: 'Rendez-vous récupérés avec succès',
-      data: appointments
-    });
-  } catch (error) {
-    console.error('Erreur lors de la récupération des rendez-vous:', error);
-    res.status(500).json({ message: 'Erreur lors de la récupération des rendez-vous' });
-  }
-};
-
-// Obtenir un rendez-vous par ID
-exports.getAppointment = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const appointment = await Appointment.findByPk(id, {
-      include: [
-        {
-          model: Patient,
-          attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
-        }
-      ]
-    });
-
-    if (!appointment) {
-      return res.status(404).json({ message: 'Rendez-vous non trouvé' });
-    }
-
-    res.json({
-      message: 'Rendez-vous récupéré avec succès',
-      data: appointment
-    });
-  } catch (error) {
-    console.error('Erreur lors de la récupération du rendez-vous:', error);
-    res.status(500).json({ message: 'Erreur lors de la récupération du rendez-vous' });
-  }
-};
-
-// Mettre à jour un rendez-vous
-exports.updateAppointment = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { date, type, notes, status } = req.body;
-
-    const appointment = await RendezVous.findByPk(id);
-    if (!appointment) {
-      return res.status(404).json({ message: 'Rendez-vous non trouvé' });
-    }
-
-    // Mettre à jour le rendez-vous
-    await appointment.update({
-      date,
-      type,
-      notes,
-      status
-    });
-
-    const updatedAppointment = await RendezVous.findByPk(id, {
-      include: [
-        {
-          model: Patient,
-          attributes: ['id', 'nom', 'prenom', 'telephone']
-        }
-      ]
-    });
-
-    res.json({
-      message: 'Rendez-vous mis à jour avec succès',
-      data: updatedAppointment
-    });
-  } catch (error) {
-    console.error('Erreur lors de la mise à jour du rendez-vous:', error);
-    res.status(500).json({ message: 'Erreur lors de la mise à jour du rendez-vous' });
-  }
-};
-
-// Supprimer un rendez-vous
-exports.deleteAppointment = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const appointment = await RendezVous.findByPk(id);
-
-    if (!appointment) {
-      return res.status(404).json({ message: 'Rendez-vous non trouvé' });
-    }
-
-    await appointment.destroy();
-    res.json({ message: 'Rendez-vous supprimé avec succès' });
-  } catch (error) {
-    console.error('Erreur lors de la suppression du rendez-vous:', error);
-    res.status(500).json({ message: 'Erreur lors de la suppression du rendez-vous' });
-  }
-};
-
-// Obtenir les prochains rendez-vous
-exports.getUpcomingAppointments = async (req, res) => {
-  try {
-    const dentisteId = req.user.id;
-    const now = new Date();
-
-    const appointments = await RendezVous.findAll({
-      where: {
-        dentisteId,
-        dateTime: {
-          [Op.gte]: now
-        },
-        status: {
-          [Op.ne]: 'cancelled'
-        }
+    // Récupérer les rendez-vous du patient pour le dentiste connecté
+    const appointments = await Appointment.findAll({
+      where: { 
+        patientId,
+        dentisteId: req.user.id
       },
-      include: [{
-        model: Patient,
-        attributes: ['id', 'nom', 'prenom']
-      }],
-      order: [['dateTime', 'ASC']],
-      limit: 5
+      order: [['date', 'DESC']],
+      include: [
+        {
+          model: Patient,
+          as: 'patient',
+          attributes: ['id', 'nom', 'prenom'],
+          where: { dentisteId: req.user.id },
+          required: true
+        }
+      ]
     });
 
-    res.json({
+    res.status(200).json({
       success: true,
+      count: appointments.length,
       data: appointments
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des prochains rendez-vous:', error);
+    console.error('Erreur getPatientAppointments:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des prochains rendez-vous'
-    });
-  }
-};
-
-// Mettre à jour le statut d'un rendez-vous
-exports.updateAppointmentStatus = async (req, res) => {
-  try {
-    console.log('=== Début de updateAppointmentStatus ===');
-    console.log('Headers:', req.headers);
-    console.log('Params:', req.params);
-    console.log('Body:', req.body);
-    
-    const { id } = req.params;
-    const { status } = req.body;
-    
-    console.log(`Tentative de mise à jour du rendez-vous ${id} avec le statut:`, status);
-
-    // Vérifier si le statut est valide
-    const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed', 'missed'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ 
-        message: 'Statut invalide. Les statuts valides sont : ' + validStatuses.join(', ')
-      });
-    }
-
-    console.log('Recherche du rendez-vous avec ID:', id);
-    // Trouver le rendez-vous
-    const appointment = await RendezVous.findByPk(id);
-    if (!appointment) {
-      console.error('ERREUR: Rendez-vous non trouvé avec ID:', id);
-      return res.status(404).json({ 
-        success: false,
-        message: 'Rendez-vous non trouvé',
-        id: id
-      });
-    }
-
-    console.log('Rendez-vous trouvé:', appointment);
-    // Mettre à jour le statut
-    await appointment.update({ status });
-
-    // Récupérer le rendez-vous mis à jour avec les informations du patient
-    const updatedAppointment = await RendezVous.findByPk(id, {
-      include: [{
-        model: Patient,
-        attributes: ['id', 'nom', 'prenom', 'telephone', 'email']
-      }]
-    });
-
-    console.log('Rendez-vous mis à jour avec succès:', updatedAppointment);
-    res.json({
-      success: true,
-      message: 'Statut du rendez-vous mis à jour avec succès',
-      data: updatedAppointment
-    });
-  } catch (error) {
-    console.error('Erreur lors de la mise à jour du statut:', error);
-    res.status(500).json({ 
-      message: 'Erreur lors de la mise à jour du statut du rendez-vous'
+      message: 'Erreur lors de la récupération des rendez-vous du patient',
+      error: error.message
     });
   }
 };

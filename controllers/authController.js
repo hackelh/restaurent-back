@@ -7,6 +7,14 @@ exports.register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
+    // Validation des champs requis
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Veuillez fournir un nom, un email et un mot de passe'
+      });
+    }
+
     // Vérifier si l'utilisateur existe déjà
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
@@ -20,16 +28,25 @@ exports.register = async (req, res, next) => {
     const user = await User.create({
       name,
       email,
-      password
+      password,
+      role: 'dentist' // Définir un rôle par défaut
     });
 
     // Générer le token
     const token = user.getSignedJwtToken();
 
+    // Préparer la réponse
+    const userResponse = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    };
+
     res.status(201).json({
       success: true,
       token,
-      user
+      user: userResponse
     });
   } catch (error) {
     next(error);

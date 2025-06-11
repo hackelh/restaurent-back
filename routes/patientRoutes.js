@@ -7,7 +7,8 @@ const {
   updatePatient,
   deletePatient,
   ajouterOrdonnance,
-  ajouterPathologie
+  ajouterPathologie,
+  ajouterOrdonnanceJSON
 } = require('../controllers/patientController');
 const { verifyToken } = require('../middlewares/auth');
 
@@ -29,7 +30,7 @@ router
 // Routes pour les ordonnances et pathologies
 router
   .route('/:id/ordonnances')
-  .post(ajouterOrdonnance);
+  .post(ajouterOrdonnanceJSON);
 
 router
   .route('/:id/pathologies')

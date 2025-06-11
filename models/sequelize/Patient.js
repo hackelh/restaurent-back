@@ -50,6 +50,18 @@ const Patient = sequelize.define('Patient', {
     type: DataTypes.ENUM('actif', 'inactif', 'archive'),
     defaultValue: 'actif'
   },
+  antecedentsMedicaux: {
+    type: DataTypes.JSON,
+    allowNull: false,
+    defaultValue: [],
+    get() {
+      const rawValue = this.getDataValue('antecedentsMedicaux');
+      return Array.isArray(rawValue) ? rawValue : [];
+    },
+    set(value) {
+      this.setDataValue('antecedentsMedicaux', Array.isArray(value) ? value : []);
+    }
+  },
   dentisteId: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -67,11 +79,7 @@ const Patient = sequelize.define('Patient', {
     allowNull: true,
     defaultValue: []
   },
-  antecedentsMedicaux: {
-    type: DataTypes.JSON,
-    allowNull: true,
-    defaultValue: []
-  },
+
   traitementEnCours: {
     type: DataTypes.JSON,
     allowNull: true,
@@ -92,8 +100,20 @@ const Patient = sequelize.define('Patient', {
   },
   notesMedicales: {
     type: DataTypes.TEXT
+  },
+  ordonnances: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: []
   }
 }, {
+  hooks: {
+    beforeValidate: (patient) => {
+      if (!Array.isArray(patient.antecedentsMedicaux)) {
+        patient.antecedentsMedicaux = [];
+      }
+    }
+  },
   timestamps: true, // Ajoute createdAt et updatedAt
   tableName: 'Patients',
   indexes: [

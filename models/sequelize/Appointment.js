@@ -1,53 +1,44 @@
-const { Model } = require('sequelize');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../../config/database');
 
-module.exports = (sequelize, DataTypes) => {
-  class Appointment extends Model {
-    static associate(models) {
-      // Définir les associations ici
-      Appointment.belongsTo(models.Patient, {
-        foreignKey: 'patientId',
-        as: 'patient'
-      });
+const Appointment = sequelize.define('Appointment', {
+  patientId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'Patients',
+      key: 'id'
     }
-    static associate(models) {
-      Appointment.belongsTo(models.Patient, {
-        foreignKey: 'patientId',
-        as: 'patient'
-      });
+  },
+  dentisteId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'Users',
+      key: 'id'
     }
+  },
+  date: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  type: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'consultation'
+  },
+  notes: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  status: {
+    type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'completed', 'missed'),
+    defaultValue: 'pending',
+    allowNull: false
   }
+}, {
+  timestamps: true,
+  tableName: 'appointments'
+});
 
-  Appointment.init({
-    patientId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: 'Patients',
-        key: 'id'
-      }
-    },
-    date: {
-      type: DataTypes.DATE,
-      allowNull: false
-    },
-    type: {
-      type: DataTypes.STRING,
-      allowNull: false
-    },
-    notes: {
-      type: DataTypes.TEXT,
-      allowNull: true
-    },
-    status: {
-      type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'completed', 'missed'),
-      defaultValue: 'pending',
-      allowNull: false
-    }
-  }, {
-    sequelize,
-    modelName: 'Appointment',
-    tableName: 'appointments'
-  });
-
-  return Appointment;
-};
+module.exports = Appointment;
