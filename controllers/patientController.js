@@ -162,11 +162,15 @@ exports.createPatient = async (req, res) => {
 // Supprimer un patient (soft delete)
 exports.deletePatient = async (req, res, next) => {
   try {
-    // Supprimer tous les rendez-vous liés dans toutes les tables possibles
-    await Appointment.destroy({ where: { patientId: req.params.id } });
-    await sequelize.query("DELETE FROM appointments WHERE patientId = ?", { replacements: [req.params.id] });
-    await sequelize.query("DELETE FROM rendezvous WHERE patientId = ?", { replacements: [req.params.id] });
-    await sequelize.query("DELETE FROM rendez_vous WHERE patientId = ?", { replacements: [req.params.id] });
+    // Vérifier s'il existe au moins un rendez-vous pour ce patient
+    const hasAppointments = await Appointment.count({ where: { patientId: req.params.id } });
+    if (hasAppointments > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Suppression impossible : ce patient possède déjà un ou plusieurs rendez-vous enregistrés dans le système. Veuillez d'abord supprimer ses rendez-vous avant de pouvoir supprimer le patient."
+      });
+    }
+
     // Supprimer les suivis médicaux liés
     await SuiviMedical.destroy({ where: { patientId: req.params.id } });
     // Supprimer les ordonnances liées

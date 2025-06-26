@@ -17,46 +17,6 @@ async function verifyPatientAccess(patientId, dentisteId) {
   return patient;
 }
 
-// Créer une nouvelle ordonnance
-exports.createOrdonnance = async (req, res) => {
-  try {
-    const { patientId, contenu, notes } = req.body;
-
-    // Vérifier que le patient appartient au dentiste connecté
-    await verifyPatientAccess(patientId, req.user.id);
-
-    // Créer l'ordonnance
-    const ordonnance = await Ordonnance.create({
-      patientId,
-      dentisteId: req.user.id,
-      contenu,
-      notes,
-      date: new Date()
-    });
-
-    // Récupérer l'ordonnance avec les informations du patient
-    const ordonnanceWithPatient = await Ordonnance.findOne({
-      where: { id: ordonnance.id },
-      include: [{
-        model: Patient,
-        as: 'patient',
-        attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
-      }]
-    });
-
-    res.status(201).json({
-      success: true,
-      data: ordonnanceWithPatient
-    });
-  } catch (error) {
-    console.error('Erreur lors de la création de l\'ordonnance:', error);
-    res.status(error.message.includes('accès non autorisé') ? 403 : 500).json({
-      success: false,
-      message: error.message || 'Erreur lors de la création de l\'ordonnance'
-    });
-  }
-};
-
 // Récupérer toutes les ordonnances avec filtres optionnels
 exports.getOrdonnances = async (req, res) => {
   try {
@@ -201,21 +161,14 @@ exports.createOrdonnance = async (req, res) => {
       date: new Date() // S'assurer que la date est définie
     });
 
-    // Récupérer l'ordonnance avec les informations du patient et du dentiste
+    // Récupérer l'ordonnance avec les informations du patient
     const ordonnanceComplete = await Ordonnance.findOne({
       where: { id: ordonnance.id },
-      include: [
-        {
-          model: Patient,
-          as: 'patient',
-          attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
-        },
-        {
-          model: require('../models/sequelize/User'),
-          as: 'dentiste',
-          attributes: ['id', 'nom', 'prenom', 'email']
-        }
-      ]
+      include: [{
+        model: Patient,
+        as: 'patient',
+        attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
+      }]
     });
 
     res.status(201).json({
@@ -280,48 +233,36 @@ exports.updateOrdonnance = async (req, res) => {
 
 // Supprimer une ordonnance
 exports.deleteOrdonnance = async (req, res) => {
-  const transaction = await sequelize.transaction();
-  
   try {
     if (!req.params.id) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'ID de l\'ordonnance manquant'
       });
     }
 
-    // Vérifier d'abord si l'ordonnance existe et appartient au dentiste
-    const ordonnance = await Ordonnance.findOne({
-      where: { 
-        id: req.params.id,
-        dentisteId: req.user.id
-      },
-      transaction
-    });
+    console.log('Tentative de suppression - ID ordonnance:', req.params.id, 'User ID:', req.user?.id);
+
+    // Vérifier d'abord si l'ordonnance existe
+    const ordonnance = await Ordonnance.findByPk(req.params.id);
+
+    console.log('Ordonnance trouvée:', ordonnance ? 'Oui' : 'Non');
 
     if (!ordonnance) {
-      await transaction.rollback();
       return res.status(404).json({
         success: false,
-        message: 'Ordonnance non trouvée ou accès non autorisé'
+        message: 'Ordonnance non trouvée'
       });
     }
 
     // Supprimer l'ordonnance
-    await ordonnance.destroy({ transaction });
-    
-    // Valider la transaction
-    await transaction.commit();
+    await ordonnance.destroy();
     
     res.status(200).json({
       success: true,
       message: 'Ordonnance supprimée avec succès'
     });
   } catch (error) {
-    // Annuler la transaction en cas d'erreur
-    await transaction.rollback();
-    
     console.error('Erreur lors de la suppression de l\'ordonnance:', error);
     
     // Gérer les erreurs spécifiques
@@ -335,7 +276,7 @@ exports.deleteOrdonnance = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la suppression de l\'ordonnance',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Erreur serveur'
     });
   }
 };
@@ -383,13 +324,19 @@ exports.generatePDF = async (req, res) => {
   try {
     const { id } = req.params;
     
+    console.log('Tentative de génération PDF - ID ordonnance:', id);
+    
     // Récupérer l'ordonnance avec les informations du patient
     const ordonnance = await Ordonnance.findByPk(id, {
       include: [{
         model: Patient,
-        attributes: ['nom', 'prenom', 'dateNaissance', 'telephone', 'email', 'adresse']
+        as: 'patient',
+        attributes: ['nom', 'prenom', 'dateNaissance', 'telephone', 'email', 'adresse'],
+        required: false // Permettre les ordonnances sans patient
       }]
     });
+
+    console.log('Ordonnance trouvée pour PDF:', ordonnance ? 'Oui' : 'Non');
 
     if (!ordonnance) {
       return res.status(404).json({
@@ -397,6 +344,8 @@ exports.generatePDF = async (req, res) => {
         message: 'Ordonnance non trouvée'
       });
     }
+
+    console.log('Patient associé:', ordonnance.patient ? 'Oui' : 'Non');
 
     // Créer un nouveau document PDF
     const doc = new PDFDocument({
@@ -418,21 +367,25 @@ exports.generatePDF = async (req, res) => {
     // Informations du patient
     doc.fontSize(12);
     doc.text('PATIENT:', { underline: true });
-    doc.text(`Nom: ${ordonnance.Patient.nom} ${ordonnance.Patient.prenom}`);
-    if (ordonnance.Patient.dateNaissance) {
-      doc.text(`Date de naissance: ${moment(ordonnance.Patient.dateNaissance).format('DD/MM/YYYY')}`);
-    }
-    if (ordonnance.Patient.adresse) {
-      doc.text(`Adresse: ${ordonnance.Patient.adresse}`);
-    }
-    if (ordonnance.Patient.telephone) {
-      doc.text(`Téléphone: ${ordonnance.Patient.telephone}`);
+    if (ordonnance.patient) {
+      doc.text(`Nom: ${ordonnance.patient.nom} ${ordonnance.patient.prenom}`);
+      if (ordonnance.patient.dateNaissance) {
+        doc.text(`Date de naissance: ${moment(ordonnance.patient.dateNaissance).format('DD/MM/YYYY')}`);
+      }
+      if (ordonnance.patient.adresse) {
+        doc.text(`Adresse: ${ordonnance.patient.adresse}`);
+      }
+      if (ordonnance.patient.telephone) {
+        doc.text(`Téléphone: ${ordonnance.patient.telephone}`);
+      }
+    } else {
+      doc.text('Patient: Informations non disponibles');
     }
 
     doc.moveDown();
 
     // Date de l'ordonnance
-    doc.text(`Date: ${moment(ordonnance.createdAt).format('DD/MM/YYYY')}`);
+    doc.text(`Date: ${moment(ordonnance.createdAt || ordonnance.date).format('DD/MM/YYYY')}`);
     doc.moveDown();
 
     // Contenu de l'ordonnance
