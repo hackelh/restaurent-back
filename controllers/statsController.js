@@ -120,12 +120,12 @@ exports.getStats = async (req, res, next) => {
           date: appointment.date,
           type: appointment.type,
           status: appointment.status,
-          patient: appointment.Patient ? {
-            id: appointment.Patient.id,
-            nom: appointment.Patient.nom,
-            prenom: appointment.Patient.prenom,
-            telephone: appointment.Patient.telephone,
-            email: appointment.Patient.email
+          patient: appointment.patient ? {
+            id: appointment.patient.id,
+            nom: appointment.patient.nom,
+            prenom: appointment.patient.prenom,
+            telephone: appointment.patient.telephone,
+            email: appointment.patient.email
           } : null
         })),
         todayAppointmentsCount,
@@ -150,12 +150,12 @@ exports.getStats = async (req, res, next) => {
         date: appointment.date,
         type: appointment.type,
         status: appointment.status,
-        patient: appointment.Patient ? {
-          id: appointment.Patient.id,
-          nom: appointment.Patient.nom,
-          prenom: appointment.Patient.prenom,
-          telephone: appointment.Patient.telephone,
-          email: appointment.Patient.email
+        patient: appointment.patient ? {
+          id: appointment.patient.id,
+          nom: appointment.patient.nom,
+          prenom: appointment.patient.prenom,
+          telephone: appointment.patient.telephone,
+          email: appointment.patient.email
         } : null
       })),
       statsByStatus: todayAppointmentsDetails.reduce((acc, appointment) => {
@@ -171,10 +171,10 @@ exports.getStats = async (req, res, next) => {
         date: appointment.date,
         type: appointment.type,
         status: appointment.status,
-        patient: appointment.Patient ? {
-          id: appointment.Patient.id,
-          nom: appointment.Patient.nom,
-          prenom: appointment.Patient.prenom
+        patient: appointment.patient ? {
+          id: appointment.patient.id,
+          nom: appointment.patient.nom,
+          prenom: appointment.patient.prenom
         } : null
       }))
     };

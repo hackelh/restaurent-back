@@ -64,77 +64,37 @@ exports.getPatient = async (req, res) => {
 };
 
 // Mettre à jour un patient
-exports.updatePatient = async (req, res) => {
+exports.updatePatient = async (req, res, next) => {
   try {
     console.log('Données reçues pour mise à jour patient:', req.body);
+    const { id } = req.params;
+    const dentisteId = req.user.id;
+    let data = { ...req.body };
 
-    // Valider les champs requis
-    if (req.body.nom === '' || req.body.prenom === '' || req.body.telephone === '' || req.body.dateNaissance === '') {
-      return res.status(400).json({
-        success: false,
-        message: 'Les champs obligatoires ne peuvent pas être vides'
-      });
-    }
+    // Sérialiser les champs complexes
+    if (typeof data.adresse === 'object') data.adresse = JSON.stringify(data.adresse);
+    if (Array.isArray(data.allergies)) data.allergies = JSON.stringify(data.allergies);
+    if (Array.isArray(data.traitementEnCours)) data.traitementEnCours = JSON.stringify(data.traitementEnCours);
+    if (Array.isArray(data.antecedentsMedicaux)) data.antecedentsMedicaux = JSON.stringify(data.antecedentsMedicaux);
 
-    // Préparer les données pour la mise à jour
-    const updateData = { ...req.body };
-    
-    // S'assurer que antecedentsMedicaux est un tableau
-    if (updateData.antecedentsMedicaux !== undefined) {
-      updateData.antecedentsMedicaux = Array.isArray(updateData.antecedentsMedicaux)
-        ? updateData.antecedentsMedicaux
-        : [];
-    }
+    // Supprimer les champs inutiles venant du front
+    delete data._allergyInput;
+    delete data._traitementInput;
 
-    const [updated] = await Patient.update(updateData, {
-      where: { 
-        id: req.params.id, 
-        dentisteId: req.user.id 
-      },
-      returning: true,
-      individualHooks: true
+    // Mettre à jour le patient
+    const [updated] = await Patient.update(data, {
+      where: { id, dentisteId }
     });
 
-    if (!updated) {
-      return res.status(404).json({
-        success: false,
-        message: 'Patient non trouvé ou accès non autorisé'
-      });
+    if (updated) {
+      const updatedPatient = await Patient.findOne({ where: { id, dentisteId } });
+      res.json({ success: true, message: 'Patient mis à jour', data: updatedPatient });
+    } else {
+      res.status(404).json({ success: false, message: 'Patient non trouvé ou non autorisé' });
     }
-
-    // Récupérer le patient mis à jour
-    const patient = await Patient.findByPk(req.params.id);
-    
-    res.json({ 
-      success: true, 
-      data: patient 
-    });
-
   } catch (error) {
-    console.error('Erreur détaillée:', error);
-    
-    // Gestion spécifique des erreurs de validation Sequelize
-    if (error.name === 'SequelizeValidationError') {
-      const errors = error.errors.map(err => ({
-        field: err.path,
-        message: err.message
-      }));
-      
-      return res.status(400).json({
-        success: false,
-        message: 'Erreur de validation',
-        errors: errors.reduce((acc, curr) => ({
-          ...acc,
-          [curr.field]: curr.message
-        }), {})
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la mise à jour du patient',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    console.error('Erreur dans updatePatient:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la mise à jour du patient' });
   }
 };
 
@@ -200,7 +160,7 @@ exports.createPatient = async (req, res) => {
 };
 
 // Supprimer un patient (soft delete)
-exports.deletePatient = async (req, res) => {
+exports.deletePatient = async (req, res, next) => {
   try {
     // Supprimer tous les rendez-vous liés dans toutes les tables possibles
     await Appointment.destroy({ where: { patientId: req.params.id } });
@@ -233,7 +193,7 @@ exports.deletePatient = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Erreur:', error);
+    console.error('Erreur dans deletePatient:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la suppression'
