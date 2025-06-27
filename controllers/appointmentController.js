@@ -97,13 +97,11 @@ exports.createAppointment = async (req, res) => {
 
 exports.getAppointments = async (req, res) => {
   try {
-    console.log('Récupération des rendez-vous pour le dentiste:', req.user.id);
+    console.log('Récupération des rendez-vous (global)');
     console.log('Query params:', req.query);
 
     // Construire les conditions de recherche
-    const whereConditions = {
-      dentisteId: req.user.id
-    };
+    const whereConditions = {};
 
     // Si une date est spécifiée, filtrer par cette date
     if (req.query.date) {
@@ -122,8 +120,7 @@ exports.getAppointments = async (req, res) => {
       include: [{ 
         model: Patient,
         as: 'patient',
-        attributes: ['id', 'nom', 'prenom', 'email', 'telephone', 'dateNaissance'],
-        where: { dentisteId: req.user.id }
+        attributes: ['id', 'nom', 'prenom', 'email', 'telephone', 'dateNaissance']
       }],
       order: [['date', 'ASC']]
     });
@@ -143,10 +140,7 @@ exports.getAppointment = async (req, res) => {
   try {
     console.log('Getting appointment:', req.params.id);
     const appointment = await Appointment.findOne({
-      where: {
-        id: req.params.id,
-        dentisteId: req.user.id
-      },
+      where: { id: req.params.id },
       include: [{ model: Patient, as: 'patient' }]
     });
     if (!appointment) return res.status(404).json({ error: 'Rendez-vous non trouvé' });

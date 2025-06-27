@@ -6,7 +6,6 @@ const { sequelize } = require('../config/database');
 exports.getPatients = async (req, res) => {
   try {
     const patients = await Patient.findAll({
-      where: { dentisteId: req.user.id },
       order: [['nom', 'ASC']]
     });
     res.json({ success: true, data: patients });
@@ -23,11 +22,7 @@ exports.getPatients = async (req, res) => {
 exports.getPatient = async (req, res) => {
   try {
     const patient = await Patient.findOne({
-      where: { 
-        id: req.params.id, 
-        dentisteId: req.user.id 
-      },
-      // On inclut uniquement les rendez-vous récents
+      where: { id: req.params.id },
       include: [{
         model: Appointment,
         as: 'appointments',
@@ -44,7 +39,6 @@ exports.getPatient = async (req, res) => {
       });
     }
 
-    // Assure-toi que antecedentsMedicaux est toujours un tableau
     if (!patient.antecedentsMedicaux) {
       patient.antecedentsMedicaux = [];
     }
@@ -68,29 +62,25 @@ exports.updatePatient = async (req, res, next) => {
   try {
     console.log('Données reçues pour mise à jour patient:', req.body);
     const { id } = req.params;
-    const dentisteId = req.user.id;
     let data = { ...req.body };
 
-    // Sérialiser les champs complexes
     if (typeof data.adresse === 'object') data.adresse = JSON.stringify(data.adresse);
     if (Array.isArray(data.allergies)) data.allergies = JSON.stringify(data.allergies);
     if (Array.isArray(data.traitementEnCours)) data.traitementEnCours = JSON.stringify(data.traitementEnCours);
     if (Array.isArray(data.antecedentsMedicaux)) data.antecedentsMedicaux = JSON.stringify(data.antecedentsMedicaux);
 
-    // Supprimer les champs inutiles venant du front
     delete data._allergyInput;
     delete data._traitementInput;
 
-    // Mettre à jour le patient
     const [updated] = await Patient.update(data, {
-      where: { id, dentisteId }
+      where: { id }
     });
 
     if (updated) {
-      const updatedPatient = await Patient.findOne({ where: { id, dentisteId } });
+      const updatedPatient = await Patient.findOne({ where: { id } });
       res.json({ success: true, message: 'Patient mis à jour', data: updatedPatient });
     } else {
-      res.status(404).json({ success: false, message: 'Patient non trouvé ou non autorisé' });
+      res.status(404).json({ success: false, message: 'Patient non trouvé' });
     }
   } catch (error) {
     console.error('Erreur dans updatePatient:', error);
@@ -102,8 +92,6 @@ exports.updatePatient = async (req, res, next) => {
 exports.createPatient = async (req, res) => {
   try {
     console.log('Données reçues pour création patient:', req.body);
-    
-    // Valider les champs requis
     if (!req.body.nom || !req.body.prenom || !req.body.telephone || !req.body.dateNaissance) {
       return res.status(400).json({
         success: false,
@@ -119,8 +107,6 @@ exports.createPatient = async (req, res) => {
 
     const patient = await Patient.create({
       ...req.body,
-      dentisteId: req.user.id,
-      // S'assurer que antecedentsMedicaux est un tableau
       antecedentsMedicaux: Array.isArray(req.body.antecedentsMedicaux) 
         ? req.body.antecedentsMedicaux 
         : []
@@ -133,14 +119,11 @@ exports.createPatient = async (req, res) => {
 
   } catch (error) {
     console.error('Erreur détaillée:', error);
-    
-    // Gestion spécifique des erreurs de validation Sequelize
     if (error.name === 'SequelizeValidationError') {
       const errors = error.errors.map(err => ({
         field: err.path,
         message: err.message
       }));
-      
       return res.status(400).json({
         success: false,
         message: 'Erreur de validation',
@@ -150,7 +133,6 @@ exports.createPatient = async (req, res) => {
         }), {})
       });
     }
-
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création du patient',
@@ -162,7 +144,6 @@ exports.createPatient = async (req, res) => {
 // Supprimer un patient (soft delete)
 exports.deletePatient = async (req, res, next) => {
   try {
-    // Vérifier s'il existe au moins un rendez-vous pour ce patient
     const hasAppointments = await Appointment.count({ where: { patientId: req.params.id } });
     if (hasAppointments > 0) {
       return res.status(409).json({
@@ -170,32 +151,21 @@ exports.deletePatient = async (req, res, next) => {
         message: "Suppression impossible : ce patient possède déjà un ou plusieurs rendez-vous enregistrés dans le système. Veuillez d'abord supprimer ses rendez-vous avant de pouvoir supprimer le patient."
       });
     }
-
-    // Supprimer les suivis médicaux liés
     await SuiviMedical.destroy({ where: { patientId: req.params.id } });
-    // Supprimer les ordonnances liées
     await Ordonnance.destroy({ where: { patientId: req.params.id } });
-
-    // Supprimer le patient
     const deleted = await Patient.destroy({
-      where: { 
-        id: req.params.id, 
-        dentisteId: req.user.id 
-      }
+      where: { id: req.params.id }
     });
-
     if (!deleted) {
       return res.status(404).json({
         success: false,
         message: 'Patient non trouvé'
       });
     }
-
     res.json({ 
       success: true,
       message: 'Patient supprimé avec succès'
     });
-
   } catch (error) {
     console.error('Erreur dans deletePatient:', error);
     res.status(500).json({
@@ -214,14 +184,6 @@ exports.ajouterOrdonnance = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Patient non trouvé'
-      });
-    }
-
-    // Vérifier que l'utilisateur est autorisé à modifier ce patient
-    if (patient.dentisteId !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Non autorisé'
       });
     }
 
@@ -273,14 +235,6 @@ exports.ajouterPathologie = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Patient non trouvé'
-      });
-    }
-
-    // Vérifier que l'utilisateur est autorisé à modifier ce patient
-    if (patient.dentisteId !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Non autorisé'
       });
     }
 

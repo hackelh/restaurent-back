@@ -21,25 +21,16 @@ async function verifyPatientAccess(patientId, dentisteId) {
 exports.getOrdonnances = async (req, res) => {
   try {
     console.log('Début getOrdonnances - Query:', req.query);
-    
     const { search, status, startDate, endDate } = req.query;
-    
-    // Construire les conditions de recherche
     let whereConditions = {};
-    
     if (status) {
       whereConditions.status = status;
     }
-    
     if (startDate && endDate) {
       whereConditions.createdAt = {
         [Op.between]: [new Date(startDate), new Date(endDate)]
       };
     }
-
-    console.log('Conditions de recherche:', JSON.stringify(whereConditions, null, 2));
-
-    // Construire les conditions de recherche pour le patient
     let patientWhere = {};
     if (search) {
       patientWhere = {
@@ -49,37 +40,20 @@ exports.getOrdonnances = async (req, res) => {
         ]
       };
     }
-
-    console.log('Conditions patient:', JSON.stringify(patientWhere, null, 2));
-
     const ordonnances = await Ordonnance.findAll({
-      where: {
-        ...whereConditions,
-        dentisteId: req.user.id // Filtre par l'ID du dentiste connecté
-      },
+      where: whereConditions,
       include: [{
         model: Patient,
         as: 'patient',
         attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email'],
-        where: {
-          dentisteId: req.user.id, // S'assure que le patient appartient aussi au dentiste
-          ...(Object.keys(patientWhere).length > 0 ? patientWhere : {})
-        },
-        required: true // Ne retourne que les ordonnances avec des patients valides
+        where: Object.keys(patientWhere).length > 0 ? patientWhere : undefined,
+        required: Object.keys(patientWhere).length > 0
       }],
       order: [['createdAt', 'DESC']]
     });
-
-    console.log(`Ordonnances trouvées: ${ordonnances.length}`);
-
-    res.json({
-      success: true,
-      data: ordonnances
-    });
+    res.json({ success: true, data: ordonnances });
   } catch (error) {
     console.error('Erreur lors de la récupération des ordonnances:', error);
-    console.error('Stack:', error.stack);
-    
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des ordonnances',
@@ -97,30 +71,21 @@ exports.getOrdonnanceById = async (req, res) => {
         message: 'ID de l\'ordonnance manquant'
       });
     }
-
     const ordonnance = await Ordonnance.findOne({
-      where: { 
-        id: req.params.id,
-        dentisteId: req.user.id // Assure que seul le dentiste propriétaire peut accéder
-      },
+      where: { id: req.params.id },
       include: [{
         model: Patient,
         as: 'patient',
         attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
       }]
     });
-
     if (!ordonnance) {
       return res.status(404).json({
         success: false,
-        message: 'Ordonnance non trouvée ou accès non autorisé'
+        message: 'Ordonnance non trouvée'
       });
     }
-
-    res.status(200).json({
-      success: true,
-      data: ordonnance
-    });
+    res.status(200).json({ success: true, data: ordonnance });
   } catch (error) {
     console.error('Erreur lors de la récupération de l\'ordonnance:', error);
     res.status(500).json({
@@ -134,34 +99,22 @@ exports.getOrdonnanceById = async (req, res) => {
 // Créer une nouvelle ordonnance
 exports.createOrdonnance = async (req, res) => {
   try {
-    const { patientId, contenu, status = 'active', notes } = req.body;
-
-    // Vérifier si le patient existe et appartient au dentiste
-    const patient = await Patient.findOne({
-      where: { 
-        id: patientId,
-        dentisteId: req.user.id 
-      }
-    });
-    
+    const { patientId, contenu, status = 'active', notes, dentisteId } = req.body;
+    const patient = await Patient.findOne({ where: { id: patientId } });
     if (!patient) {
       return res.status(404).json({
         success: false,
-        message: 'Patient non trouvé ou accès non autorisé'
+        message: 'Patient non trouvé'
       });
     }
-
-    // Créer l'ordonnance avec le dentisteId
     const ordonnance = await Ordonnance.create({
       patientId,
       contenu,
       status,
       notes,
-      dentisteId: req.user.id,
-      date: new Date() // S'assurer que la date est définie
+      dentisteId,
+      date: new Date()
     });
-
-    // Récupérer l'ordonnance avec les informations du patient
     const ordonnanceComplete = await Ordonnance.findOne({
       where: { id: ordonnance.id },
       include: [{
@@ -170,7 +123,6 @@ exports.createOrdonnance = async (req, res) => {
         attributes: ['id', 'nom', 'prenom', 'dateNaissance', 'telephone', 'email']
       }]
     });
-
     res.status(201).json({
       success: true,
       data: ordonnanceComplete,
@@ -191,15 +143,10 @@ exports.updateOrdonnance = async (req, res) => {
   try {
     const { id } = req.params;
     const { patientId, contenu, notes } = req.body;
-
-    const ordonnance = await Ordonnance.findOne({
-      where: { id: req.params.id, dentisteId: req.user.id }
-    });
-    
+    const ordonnance = await Ordonnance.findOne({ where: { id: req.params.id } });
     if (!ordonnance) {
-      return res.status(404).json({ error: 'Ordonnance non trouvée ou accès non autorisé' });
+      return res.status(404).json({ error: 'Ordonnance non trouvée' });
     }
-
     if (patientId) {
       const patient = await Patient.findByPk(patientId);
       if (!patient) {
@@ -209,13 +156,11 @@ exports.updateOrdonnance = async (req, res) => {
         });
       }
     }
-
     await ordonnance.update({
       patientId: patientId || ordonnance.patientId,
       contenu: contenu || ordonnance.contenu,
       notes: notes || ordonnance.notes
     });
-
     res.json({
       success: true,
       data: ordonnance,

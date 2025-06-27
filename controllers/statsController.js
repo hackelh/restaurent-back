@@ -43,13 +43,10 @@ exports.getStats = async (req, res, next) => {
     // Statistiques pour le tableau de bord
     const [totalPatients, todayAppointmentsCount, monthlyPrescriptions, todayAppointmentsDetails] = await Promise.all([
       // Nombre total de patients
-      Patient.count({
-        where: { dentisteId }
-      }),
+      Patient.count(),
       // Nombre de rendez-vous aujourd'hui
       Appointment.count({
         where: {
-          dentisteId,
           date: {
             [Op.between]: [debutJournee, finJournee]
           },
@@ -60,11 +57,6 @@ exports.getStats = async (req, res, next) => {
       }),
       // Nombre de prescriptions ce mois-ci
       SuiviMedical.count({
-        include: [{
-          model: Patient,
-          as: 'patient',
-          where: { dentisteId }
-        }],
         where: {
           date: {
             [Op.between]: [debutMois, finMois]
@@ -74,7 +66,6 @@ exports.getStats = async (req, res, next) => {
       // Détails des rendez-vous d'aujourd'hui
       Appointment.findAll({
         where: {
-          dentisteId,
           date: {
             [Op.between]: [debutJournee, finJournee]
           },
@@ -97,7 +88,6 @@ exports.getStats = async (req, res, next) => {
       console.log('Récupération des prochains rendez-vous');
       const upcomingAppointments = await Appointment.findAll({
         where: {
-          dentisteId,
           date: {
             [Op.gte]: new Date()
           },
